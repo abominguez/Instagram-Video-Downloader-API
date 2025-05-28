@@ -1,25 +1,39 @@
-const express = require('express');
-const snapsave = require('./snapsave-downloader'); // ya obtiene el JSON
-const raw = await snapsave(url);
-console.log('DEBUG raw =>', JSON.stringify(raw, null, 2));
-const app   = express();
-const port  = 3000;
+/* --------------------------------------------------
+   Instagram-Video-Downloader-API – micro-servicio
+   Descarga un reel/post:  GET /igdl?url=<insta_url>
+   Devuelve JSON { url: "<enlace .mp4>", success: true }
+-------------------------------------------------- */
+const express  = require('express');
+const snapsave = require('./snapsave-downloader');   // librería que ya tenías
 
-/* Helper: de lo que devuelva snapsave saca la URL directa */
-function pickDirectLink(obj) {
-  if (!obj) return null;
+const app  = express();
+const PORT = process.env.PORT || 3000;
 
-  if (typeof obj === 'string') return obj;                     // cuando ya es string
-  if (obj.url?.data?.length)   return obj.url.data[0].url;     // nueva estructura
-  if (obj.url)                 return obj.url;                 // formato antiguo
-  if (obj.video?.url)          return obj.video.url;           // por si acaso
+/* Helper: intenta encontrar la URL MP4 en distintos formatos */
+function pickDirectLink(raw) {
+  if (!raw) return null;
+
+  // formato más reciente   { url: { data:[{ url:"..." }] } }
+  if (raw.url?.data?.length && raw.url.data[0].url)
+    return raw.url.data[0].url;
+
+  // formato anterior       { url: "https://...mp4" }
+  if (typeof raw.url === 'string')
+    return raw.url;
+
+  // otro posible formato   { video: { url:"..." } }
+  if (raw.video?.url)
+    return raw.video.url;
+
   return null;
 }
 
-app.get('/', (req, res) => {
-  res.json({ message: 'Instagram Downloader API' });
+/* Root */
+app.get('/', (_, res) => {
+  res.json({ message: 'Instagram Downloader API – use /igdl?url=' });
 });
 
+/* Main endpoint */
 app.get('/igdl', async (req, res) => {
   try {
     const { url } = req.query;
@@ -28,16 +42,18 @@ app.get('/igdl', async (req, res) => {
     // Llama a snapsave
     const raw = await snapsave(url);
 
+    // Elegir enlace directo
     const direct = pickDirectLink(raw);
     if (!direct) return res.status(500).json({ error: 'Direct link not found' });
 
-    return res.json({ url: direct, success: true });
+    res.json({ url: direct, success: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-app.listen(port, () =>
-  console.log(`Instagram-Video-Downloader-API running on http://localhost:${port}`)
+/* Arrancar servidor */
+app.listen(PORT, () =>
+  console.log(`Instagram Downloader running on http://localhost:${PORT}`)
 );
