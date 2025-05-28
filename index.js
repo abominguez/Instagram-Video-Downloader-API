@@ -1,5 +1,7 @@
 const express = require('express');
 const snapsave = require('./snapsave-downloader'); // ya obtiene el JSON
+const raw = await snapsave(url);
+console.log('DEBUG raw =>', JSON.stringify(raw, null, 2));
 const app   = express();
 const port  = 3000;
 
