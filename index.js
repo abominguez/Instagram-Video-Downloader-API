@@ -7,7 +7,6 @@ const express  = require('express');
 const snapsave = require('./snapsave-downloader');   // librería que ya tenías
 
 const app  = express();
-const PORT = process.env.PORT || 3000;
 
 /* Helper: intenta encontrar la URL MP4 en distintos formatos */
 function pickDirectLink(raw) {
