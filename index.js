@@ -4,9 +4,6 @@ const app = express();
 const snapsave = require('./snapsave-downloader');
 const port = 3000;
 
-// Token de acceso de Facebook (usa el que proporcionaste)
-const FB_ACCESS_TOKEN = '1213051549991229|StQwB54cS-ClpHQ9raxnn5ij0dk';
-
 app.get('/', (req, res) => {
   res.json({ message: 'Hello World!' });
 });
@@ -18,28 +15,40 @@ app.get('/igdl', async (req, res) => {
       return res.status(400).json({ error: 'URL parameter is missing' });
     }
 
-    // 1. Descargar video usando snapsave
+    // Descargar video usando snapsave
     const downloadedURL = await snapsave(url);
     
-    // 2. Obtener descripción usando oEmbed API
-    const oembedUrl = `https://graph.facebook.com/v18.0/oembed_video?url=${encodeURIComponent(url)}&access_token=${FB_ACCESS_TOKEN}`;
-    const oembedResponse = await axios.get(oembedUrl);
+    // Obtener descripción basada en la plataforma
+    let description = "Sin descripción disponible";
+    
+    if (url.includes('instagram.com')) {
+      // Usar oEmbed público de Instagram
+      const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(url)}&omitscript=true`;
+      const oembedResponse = await axios.get(oembedUrl);
+      description = oembedResponse.data.title || description;
+    } else if (url.includes('facebook.com')) {
+      // Solución alternativa para Facebook usando Open Graph
+      try {
+        const response = await axios.get(url);
+        const html = response.data;
+        
+        // Buscar la descripción en meta tags
+        const descriptionMatch = html.match(/<meta property="og:description" content="([^"]*)"/i);
+        if (descriptionMatch && descriptionMatch[1]) {
+          description = descriptionMatch[1];
+        }
+      } catch (fbErr) {
+        console.log("No se pudo obtener descripción de Facebook");
+      }
+    }
     
     res.json({
       download_url: downloadedURL,
-      description: oembedResponse.data.title || "Sin descripción disponible"
+      description: description
     });
     
   } catch (err) {
     console.error('Error:', err.message);
-    
-    // Manejo específico de errores de Facebook API
-    if (err.response?.data?.error) {
-      return res.status(500).json({ 
-        error: 'Error de Facebook API',
-        message: err.response.data.error.message
-      });
-    }
     
     res.status(500).json({ 
       error: 'Internal Server Error',
