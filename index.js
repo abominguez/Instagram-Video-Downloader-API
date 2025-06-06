@@ -3,6 +3,15 @@ const axios = require('axios');
 const app = express();
 const snapsave = require('./snapsave-downloader');
 const port = 3000;
+const express = require('express');
+const axios = require('axios');
+const app = express();
+const snapsave = require('./snapsave-downloader');
+const port = 3000;
+
+// Configuración de Iframely
+const IFRAMELY_API_KEY = '80c35cf85e5f42d8478c87';
+const IFRAMELY_API_URL = 'https://cdn.iframe.ly/api/iframely';
 
 app.get('/', (req, res) => {
   res.json({ message: 'Hello World!' });
@@ -18,28 +27,22 @@ app.get('/igdl', async (req, res) => {
     // Descargar video usando snapsave
     const downloadedURL = await snapsave(url);
     
-    // Obtener descripción basada en la plataforma
+    // Obtener descripción usando Iframely
     let description = "Sin descripción disponible";
     
-    if (url.includes('instagram.com')) {
-      // Usar oEmbed público de Instagram
-      const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(url)}&omitscript=true`;
-      const oembedResponse = await axios.get(oembedUrl);
-      description = oembedResponse.data.title || description;
-    } else if (url.includes('facebook.com')) {
-      // Solución alternativa para Facebook usando Open Graph
-      try {
-        const response = await axios.get(url);
-        const html = response.data;
-        
-        // Buscar la descripción en meta tags
-        const descriptionMatch = html.match(/<meta property="og:description" content="([^"]*)"/i);
-        if (descriptionMatch && descriptionMatch[1]) {
-          description = descriptionMatch[1];
-        }
-      } catch (fbErr) {
-        console.log("No se pudo obtener descripción de Facebook");
+    try {
+      const iframelyResponse = await axios.get(`${IFRAMELY_API_URL}?url=${encodeURIComponent(url)}&api_key=${IFRAMELY_API_KEY}`);
+      
+      // Extraer la mejor descripción disponible
+      if (iframelyResponse.data?.meta?.title) {
+        description = iframelyResponse.data.meta.title;
+      } else if (iframelyResponse.data?.meta?.description) {
+        description = iframelyResponse.data.meta.description;
+      } else if (iframelyResponse.data?.links?.thumbnail?.[0]?.title) {
+        description = iframelyResponse.data.links.thumbnail[0].title;
       }
+    } catch (iframelyError) {
+      console.error('Error con Iframely:', iframelyError.message);
     }
     
     res.json({
@@ -48,7 +51,7 @@ app.get('/igdl', async (req, res) => {
     });
     
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('Error principal:', err.message);
     
     res.status(500).json({ 
       error: 'Internal Server Error',
