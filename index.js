@@ -8,28 +8,34 @@ const port = 3000;
 const IFRAMELY_API_KEY = '80c35cf85e5f42d8478c87';
 const IFRAMELY_API_URL = 'https://cdn.iframe.ly/api/iframely';
 
-// Función para convertir URLs de Facebook al formato share/v/
+// Función para convertir cualquier URL de Facebook al formato público /watch/?v=
 const normalizeFacebookUrl = (url) => {
   try {
     const urlObj = new URL(url);
+    const path = urlObj.pathname;
     
-    // Si ya es una URL share/v/, la devolvemos tal cual
-    if (urlObj.pathname.includes('/share/v/')) {
-      return url;
-    }
+    // Extraer ID de video de diferentes formatos
+    let videoId = null;
     
-    // Si es un Reel, extraemos el ID y lo convertimos
-    const reelMatch = url.match(/facebook\.com\/reel\/(\d+)/);
-    if (reelMatch) {
-      return `https://www.facebook.com/share/v/${reelMatch[1]}/`;
-    }
+    // Formato Reel: /reel/995532505548246/
+    const reelMatch = path.match(/\/reel\/(\d+)/);
+    if (reelMatch) videoId = reelMatch[1];
     
-    // Si es un video normal, extraemos el ID
-    const videoMatch = url.match(/videos(?:\/|%2F)(\d+)/) || 
-                      url.match(/video\.php\?v=(\d+)/) ||
-                      url.match(/\/videos\/\d+\/(\d+)\//);
-    if (videoMatch) {
-      return `https://www.facebook.com/share/v/${videoMatch[1]}/`;
+    // Formato Share: /share/v/1B65jR958u/
+    const shareMatch = path.match(/\/share\/v\/([^/]+)/);
+    if (shareMatch) videoId = shareMatch[1];
+    
+    // Formato Watch: /watch/?v=1313736923683358
+    const watchMatch = urlObj.searchParams.get('v');
+    if (watchMatch) videoId = watchMatch;
+    
+    // Formato Videos: /videos/1313736923683358/
+    const videoMatch = path.match(/\/videos\/(\d+)/);
+    if (videoMatch) videoId = videoMatch[1];
+    
+    // Si encontramos un ID de video, creamos URL pública
+    if (videoId) {
+      return `https://www.facebook.com/watch/?v=${videoId}`;
     }
     
     // Si no reconocemos el formato, devolvemos la URL original
@@ -72,6 +78,26 @@ const extractDescription = (iframelyData) => {
   return "Sin descripción disponible";
 };
 
+// Función para obtener descripción con múltiples intentos
+const getDescription = async (urls) => {
+  for (const url of urls) {
+    try {
+      const response = await axios.get(
+        `${IFRAMELY_API_URL}?url=${encodeURIComponent(url)}&api_key=${IFRAMELY_API_KEY}`,
+        { timeout: 5000 }
+      );
+      
+      const description = extractDescription(response.data);
+      if (description !== "Sin descripción disponible") {
+        return description;
+      }
+    } catch (error) {
+      console.log(`Intento fallido para ${url}: ${error.message}`);
+    }
+  }
+  return "Sin descripción disponible";
+};
+
 app.get('/', (req, res) => {
   res.json({ message: 'Hello World!' });
 });
@@ -83,47 +109,28 @@ app.get('/igdl', async (req, res) => {
       return res.status(400).json({ error: 'URL parameter is missing' });
     }
 
-    // Normalizamos la URL de Facebook solo para obtener la descripción
-    let descriptionUrl = originalUrl;
-    if (originalUrl.includes('facebook.com')) {
-      descriptionUrl = normalizeFacebookUrl(originalUrl);
-    }
+    // Normalizamos la URL de Facebook al formato público
+    const publicUrl = normalizeFacebookUrl(originalUrl);
+    
+    // Creamos una lista de URLs para intentar obtener la descripción
+    const descriptionUrls = [
+      publicUrl,                   // Formato público
+      originalUrl,                 // URL original
+      publicUrl.replace('https://www.', 'https://m.'), // Versión móvil
+      originalUrl.replace('https://www.', 'https://m.') 
+    ];
 
     // Descargar video usando la URL ORIGINAL
     const downloadedURL = await snapsave(originalUrl);
     
-    // Obtener descripción usando Iframely con la URL NORMALIZADA
-    let description = "Sin descripción disponible";
-    
-    try {
-      // Primero intentamos con la URL normalizada
-      const iframelyResponse = await axios.get(
-        `${IFRAMELY_API_URL}?url=${encodeURIComponent(descriptionUrl)}&api_key=${IFRAMELY_API_KEY}`,
-        { timeout: 5000 }
-      );
-      
-      description = extractDescription(iframelyResponse.data);
-    } catch (iframelyError) {
-      console.error('Error con Iframely (normalizada):', iframelyError.message);
-      
-      // Si falla la URL normalizada, intentamos con la original
-      try {
-        const fallbackResponse = await axios.get(
-          `${IFRAMELY_API_URL}?url=${encodeURIComponent(originalUrl)}&api_key=${IFRAMELY_API_KEY}`,
-          { timeout: 5000 }
-        );
-        
-        description = extractDescription(fallbackResponse.data);
-      } catch (fallbackError) {
-        console.error('Error con Iframely (original):', fallbackError.message);
-      }
-    }
+    // Obtener descripción con múltiples intentos
+    const description = await getDescription(descriptionUrls);
     
     res.json({
       download_url: downloadedURL,
       description: description,
       original_url: originalUrl,
-      description_url: descriptionUrl
+      public_url: publicUrl
     });
     
   } catch (err) {
