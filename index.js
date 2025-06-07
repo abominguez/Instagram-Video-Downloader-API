@@ -1,5 +1,3 @@
-// Definitivo FACEBOOK INSTAGRAM
-
 const express = require('express');
 const axios = require('axios');
 const app = express();
@@ -47,41 +45,8 @@ const normalizeFacebookUrl = (url) => {
   }
 };
 
-// Función para extraer la descripción de la respuesta de Iframely
-const extractDescription = (iframelyData) => {
-  if (!iframelyData) return "Sin descripción disponible";
-  
-  // Primero intentamos con la descripción completa
-  if (iframelyData.meta?.description) {
-    return iframelyData.meta.description;
-  }
-  
-  // Luego con el título
-  if (iframelyData.meta?.title) {
-    return iframelyData.meta.title;
-  }
-  
-  // Intentamos extraer del HTML embebido
-  if (iframelyData.html) {
-    const descMatch = iframelyData.html.match(/<p>(.*?)<\/p>/s);
-    if (descMatch) {
-      return descMatch[1]
-        .replace(/<[^>]+>/g, '') // Eliminar etiquetas HTML
-        .replace(/\n{2,}/g, '\n\n') // Normalizar saltos de línea
-        .trim();
-    }
-  }
-  
-  // Último recurso: título de la miniatura
-  if (iframelyData.links?.thumbnail?.[0]?.title) {
-    return iframelyData.links.thumbnail[0].title;
-  }
-  
-  return "Sin descripción disponible";
-};
-
-// Función para obtener descripción con múltiples intentos
-const getDescription = async (urls) => {
+// Función para obtener datos de Iframely con múltiples intentos
+const getIframelyData = async (urls) => {
   for (const url of urls) {
     try {
       const response = await axios.get(
@@ -89,15 +54,25 @@ const getDescription = async (urls) => {
         { timeout: 5000 }
       );
       
-      const description = extractDescription(response.data);
-      if (description !== "Sin descripción disponible") {
-        return description;
+      // Verificamos que tengamos datos válidos
+      if (response.data && (response.data.meta || response.data.html)) {
+        return {
+          description: response.data.meta?.description || 
+                      response.data.meta?.title || 
+                      "Sin descripción disponible",
+          html: response.data.html || null,
+          thumbnail: response.data.links?.thumbnail?.[0]?.href || null
+        };
       }
     } catch (error) {
       console.log(`Intento fallido para ${url}: ${error.message}`);
     }
   }
-  return "Sin descripción disponible";
+  return {
+    description: "Sin descripción disponible",
+    html: null,
+    thumbnail: null
+  };
 };
 
 app.get('/', (req, res) => {
@@ -114,8 +89,8 @@ app.get('/igdl', async (req, res) => {
     // Normalizamos la URL de Facebook al formato público
     const publicUrl = normalizeFacebookUrl(originalUrl);
     
-    // Creamos una lista de URLs para intentar obtener la descripción
-    const descriptionUrls = [
+    // Creamos una lista de URLs para intentar obtener los datos
+    const iframelyUrls = [
       publicUrl,                   // Formato público
       originalUrl,                 // URL original
       publicUrl.replace('https://www.', 'https://m.'), // Versión móvil
@@ -125,12 +100,14 @@ app.get('/igdl', async (req, res) => {
     // Descargar video usando la URL ORIGINAL
     const downloadedURL = await snapsave(originalUrl);
     
-    // Obtener descripción con múltiples intentos
-    const description = await getDescription(descriptionUrls);
+    // Obtener datos de Iframely (descripción, HTML de incrustación y miniatura)
+    const iframelyData = await getIframelyData(iframelyUrls);
     
     res.json({
       download_url: downloadedURL,
-      description: description,
+      description: iframelyData.description,
+      embed_html: iframelyData.html, // HTML para incrustar el video
+      thumbnail: iframelyData.thumbnail,
       original_url: originalUrl,
       public_url: publicUrl
     });
