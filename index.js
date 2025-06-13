@@ -17,11 +17,11 @@ const normalizeFacebookUrl = (url) => {
     // Extraer ID de video de diferentes formatos
     let videoId = null;
     
-    // Formato Reel: /reel/995532505548246/
+    // Formato Reel: /reel/(\d+)/
     const reelMatch = path.match(/\/reel\/(\d+)/);
     if (reelMatch) videoId = reelMatch[1];
     
-    // Formato Share: /share/v/1B65jR958u/
+    // Formato Share: /share/v/([^/]+)/
     const shareMatch = path.match(/\/share\/v\/([^/]+)/);
     if (shareMatch) videoId = shareMatch[1];
     
@@ -29,7 +29,7 @@ const normalizeFacebookUrl = (url) => {
     const watchMatch = urlObj.searchParams.get('v');
     if (watchMatch) videoId = watchMatch;
     
-    // Formato Videos: /videos/1313736923683358/
+    // Formato Videos: /videos/(\d+)/
     const videoMatch = path.match(/\/videos\/(\d+)/);
     if (videoMatch) videoId = videoMatch[1];
     
@@ -45,7 +45,7 @@ const normalizeFacebookUrl = (url) => {
   }
 };
 
-// Función para obtener datos de Iframely con múltiples intentos
+// Función para obtener datos de Iframely con múltiples intentos (MODIFICADA)
 const getIframelyData = async (urls) => {
   for (const url of urls) {
     try {
@@ -54,16 +54,32 @@ const getIframelyData = async (urls) => {
         { timeout: 5000 }
       );
       
-      // Verificamos que tengamos datos válidos
-      if (response.data && (response.data.meta || response.data.html)) {
-        return {
-          description: response.data.meta?.description || 
-                      response.data.meta?.title || 
-                      "Sin descripción disponible",
-          html: response.data.html || null,
-          thumbnail: response.data.links?.thumbnail?.[0]?.href || null
-        };
+      // Verificamos si tenemos datos válidos considerando redirecciones
+      const data = response.data;
+      if (!data) continue;
+
+      // Manejar redirecciones (Iframely a veces devuelve meta en links.redirect)
+      const meta = data.meta || (data.links?.redirect?.[0]?.meta || {});
+      
+      // Extraer descripción con mejor priorización
+      const description = meta.description || meta.title || "Sin descripción disponible";
+      
+      // Extraer thumbnail de múltiples ubicaciones posibles
+      let thumbnail = null;
+      if (data.links?.thumbnail?.[0]?.href) {
+        thumbnail = data.links.thumbnail[0].href;
+      } else if (meta.thumbnail) {
+        thumbnail = meta.thumbnail;
+      } else if (data.links?.image?.[0]?.href) {
+        thumbnail = data.links.image[0].href;
       }
+      
+      return {
+        description,
+        html: data.html || null,
+        thumbnail
+      };
+      
     } catch (error) {
       console.log(`Intento fallido para ${url}: ${error.message}`);
     }
@@ -89,10 +105,10 @@ app.get('/igdl', async (req, res) => {
     // Normalizamos la URL de Facebook al formato público
     const publicUrl = normalizeFacebookUrl(originalUrl);
     
-    // Creamos una lista de URLs para intentar obtener los datos
+    // Creamos una lista de URLs para intentar obtener los datos (ORDEN MODIFICADO)
     const iframelyUrls = [
-      publicUrl,                   // Formato público
-      originalUrl,                 // URL original
+      originalUrl,                 // Primero la URL original
+      publicUrl,                   // Luego formato público
       publicUrl.replace('https://www.', 'https://m.'), // Versión móvil
       originalUrl.replace('https://www.', 'https://m.') 
     ];
